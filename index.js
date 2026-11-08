@@ -11,8 +11,14 @@ const mineflayer = require('mineflayer');
 // ---------------- SOZLAMALAR ----------------
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? Number(process.env[k]) : d);
 const cleanToken = s => String(s || '').trim().replace(/^["']|["']$/g, '').replace(/^bot/i, '').trim();
-const TOKEN = cleanToken(process.env.TELEGRAM_TOKEN || '9153881415:AAGhlsr6V83NLrOQSGz4Ui_q_k_bnVFRi5Y');
-const ALLOWED = (process.env.ALLOWED_IDS || '8161736033').split(',').map(s => s.trim()).filter(Boolean);
+const TOKEN = cleanToken(process.env.TELEGRAM_TOKEN || 'BU_YERGA_YANGI_TOKEN');
+const ADMIN_ID = String(process.env.ADMIN_ID || '8161736033'); // bot egasi: faqat u /adduser qila oladi
+const USERS_FILE = path.join(__dirname, 'users.json');
+const allowedUsers = new Set([
+  ADMIN_ID,
+  '5693873756',                                  // qo'shimcha foydalanuvchi
+  ...(process.env.ALLOWED_IDS || '').split(',').map(s => s.trim()).filter(Boolean),
+]);
 const DATA_FILE = path.join(__dirname, 'bots.json');
 
 const DEFAULT_LOGIN_DELAY_S = env('LOGIN_DELAY_SEC', 3);   // serverga kirgach /login gacha (s)
@@ -80,7 +86,17 @@ const validPort = p => Number.isInteger(p) && p > 0 && p < 65536;
 const validNick = n => /^\w{3,16}$/.test(n);
 const validVersion = v => /^\d+\.\d+(\.\d+)?$/.test(v);
 const normCmd = s => { const t = s.trim(); return t.startsWith('/') ? t : '/' + t; };
-const isAllowed = id => ALLOWED.length === 0 || ALLOWED.includes(String(id));
+const isAllowed = id => allowedUsers.has(String(id));
+const isAdmin = id => String(id) === ADMIN_ID;
+function loadUsers() {
+  try {
+    if (fs.existsSync(USERS_FILE)) for (const id of JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'))) allowedUsers.add(String(id));
+  } catch (e) { console.error('users.json o\'qishda xato:', e.message); }
+}
+function saveUsers() {
+  try { fs.writeFileSync(USERS_FILE, JSON.stringify([...allowedUsers], null, 2)); }
+  catch (e) { console.error('users.json saqlashda xato:', e.message); }
+}
 
 function splitMessage(text, max = 3800) {
   const out = [];
@@ -664,6 +680,14 @@ Qaysi buyruq ishlashi serverga bog'liq. Server tanimasa, javobda "Unknown comman
 • Parol va bot ma'lumotlari bots.json faylida ochiq saqlanadi. Faylni hech kimga bermang.
 • Server "ma'lumotlar tekshirilmoqda" desa: /cmddelay ni oshiring.
 • Server "belgilangan vaqt ichida kira olmadingiz" desa: /logindelay ni kamaytiring.
+
+12) FOYDALANUVCHILAR
+Har bir odam o'z Telegram ID si bilan ishlatadi. Har kim faqat o'z botlarini ko'radi.
+/myid — o'z Telegram ID ingizni ko'rsatadi (hamma uchun ishlaydi)
+/adduser <id> — foydalanuvchi qo'shish (faqat admin)
+/removeuser <id> — foydalanuvchini o'chirish, uning botlari to'xtatiladi (faqat admin)
+/users — ruxsatli foydalanuvchilar ro'yxati (faqat admin)
+
 • Bu qo'llanmani qayta ko'rish uchun: /help`;
 
 // ---------------- TELEGRAM: MENYU MATNLARI ----------------
@@ -827,6 +851,42 @@ function withBot(usage, fn) {
 reg(['/start', '/add'], async msg => { await sendLong(msg.chat.id, GUIDE); startFlow(msg.chat.id); });
 reg(['/help'], msg => sendLong(msg.chat.id, GUIDE));
 reg(['/cancel'], msg => { flows.delete(msg.chat.id); send(msg.chat.id, 'Bekor qilindi.'); });
+reg(['/adduser'], (msg, args) => {
+  const chatId = msg.chat.id;
+  if (!isAdmin(msg.from.id)) return send(chatId, "⛔ Faqat admin foydalanuvchi qo'sha oladi.");
+  const id = args.trim();
+  if (!/^\d{5,15}$/.test(id)) return send(chatId, 'Format: /adduser <telegram_id>\nMasalan: /adduser 5693873756');
+  if (allowedUsers.has(id)) return send(chatId, "Bu foydalanuvchi allaqachon qo'shilgan.");
+  allowedUsers.add(id);
+  saveUsers();
+  send(chatId, `✅ ${id} qo'shildi. U endi botdan foydalana oladi.\nU xabar ololmasa, botga /start yozsin.`);
+  send(id, "✅ Sizga ruxsat berildi. Boshlash uchun /start yozing, qo'llanma: /help");
+});
+
+reg(['/removeuser'], (msg, args) => {
+  const chatId = msg.chat.id;
+  if (!isAdmin(msg.from.id)) return send(chatId, "⛔ Faqat admin foydalanuvchini o'chira oladi.");
+  const id = args.trim();
+  if (!id) return send(chatId, 'Format: /removeuser <telegram_id>');
+  if (id === ADMIN_ID) return send(chatId, "Adminni o'chirib bo'lmaydi.");
+  if (!allowedUsers.has(id)) return send(chatId, 'Bunday foydalanuvchi yo\'q.');
+  allowedUsers.delete(id);
+  saveUsers();
+  let n = 0;
+  for (const b of bots.values()) if (String(b.owner) === id) { b.stop(); n++; }
+  send(chatId, `🗑 ${id} o'chirildi. Uning ${n} ta boti to'xtatildi.`);
+});
+
+reg(['/users'], msg => {
+  const chatId = msg.chat.id;
+  if (!isAdmin(msg.from.id)) return send(chatId, "⛔ Faqat admin ko'ra oladi.");
+  const lines = [...allowedUsers].map(id => {
+    const count = [...bots.values()].filter(b => String(b.owner) === id).length;
+    return `• ${id}${id === ADMIN_ID ? ' (admin)' : ''} — ${count} ta bot`;
+  });
+  send(chatId, `👥 Ruxsatli foydalanuvchilar (${allowedUsers.size} ta):\n` + lines.join('\n'));
+});
+
 reg(['/bots'], msg => send(msg.chat.id, listText(msg.chat.id), { reply_markup: listKeyboard(msg.chat.id) }));
 
 reg(['/status'], (msg, args) => {
@@ -960,12 +1020,15 @@ tg.on('message', async msg => {
   const chatId = msg.chat.id;
   const text = (msg.text || '').trim();
   if (!text) return;
-  if (!isAllowed(msg.from.id)) {
-    if (text.startsWith('/')) send(chatId, "⛔ Ruxsat yo'q.");
-    return;
-  }
   const raw = text.split(/\s+/)[0];
   const first = raw.split('@')[0].toLowerCase();
+  if (first === '/myid') {
+    return send(chatId, `🆔 Sizning Telegram ID: ${msg.from.id}\nBu raqamni adminga yuboring, u sizni qo'shadi.`);
+  }
+  if (!isAllowed(msg.from.id)) {
+    if (text.startsWith('/')) send(chatId, "⛔ Ruxsat yo'q. Ruxsat uchun /myid orqali ID ni yuboring.");
+    return;
+  }
   if (COMMANDS[first]) return COMMANDS[first](msg, text.slice(raw.length).trim());
   if (await handleFlow(msg, text)) return;
   if (text.startsWith('/')) return send(chatId, "❓ Noma'lum buyruq. Ro'yxat: /help");
@@ -1111,6 +1174,7 @@ function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
+loadUsers();
 loadAll();
 setInterval(tick, TICK_MS);
 tg.getMe()
