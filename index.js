@@ -11,7 +11,7 @@ const mineflayer = require('mineflayer');
 // ---------------- SOZLAMALAR ----------------
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? Number(process.env[k]) : d);
 const cleanToken = s => String(s || '').trim().replace(/^["']|["']$/g, '').replace(/^bot/i, '').trim();
-const TOKEN = cleanToken(process.env.TELEGRAM_TOKEN || 'BU_YERGA_YANGI_TOKEN');
+const TOKEN = cleanToken(process.env.TELEGRAM_TOKEN || '9153881415:AAGhlsr6V83NLrOQSGz4Ui_q_k_bnVFRi5Y');
 const ADMIN_ID = String(process.env.ADMIN_ID || '8161736033'); // bot egasi: faqat u /adduser qila oladi
 const USERS_FILE = path.join(__dirname, 'users.json');
 const allowedUsers = new Set([
